@@ -1,4 +1,8 @@
 backfill:
+  name: Backfill EV away trips
+  description:
+    Replays the recorded state-of-charge history and re-imports every away trip
+    in the window. Returns the trips recorded and total kWh for each instance.
   fields:
     entry_id:
       required: false

@@ -312,13 +312,28 @@ class EvTripEngine:
         The cumulative total is recomputed from the replayed window, so running
         this again does not double count.
         """
+        from homeassistant.components.recorder import (  # noqa: PLC0415
+            DATA_INSTANCE,
+            get_instance,
+        )
         from homeassistant.components.recorder.history import (  # noqa: PLC0415
             state_changes_during_period,
         )
 
+        if DATA_INSTANCE not in self.hass.data:
+            _LOGGER.warning("The recorder is unavailable, so SOC history cannot be replayed")
+            return self.trips_recorded
+
         start = dt_util.utcnow() - timedelta(days=days)
-        history = await self.hass.async_add_executor_job(
-            partial(state_changes_during_period, self.hass, start, None, self.soc_entity_id, True)
+        history = await get_instance(self.hass).async_add_executor_job(
+            partial(
+                state_changes_during_period,
+                self.hass,
+                start,
+                None,
+                self.soc_entity_id,
+                True,
+            )
         )
         states = history.get(self.soc_entity_id, [])
 
@@ -340,7 +355,7 @@ class EvTripEngine:
 
     @callback
     def _async_schedule_persist(self) -> None:
-        self.hass.async_create_task(self._async_persist(), eager_targets=False)
+        self.hass.async_create_task(self._async_persist(), eager_start=False)
 
     async def _async_persist(self) -> None:
         payload = {

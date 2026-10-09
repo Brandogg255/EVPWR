@@ -29,16 +29,22 @@ SOC_ENTITY_SCHEMA = selector.EntitySelector(
 )
 
 
-def _number(min_value: float, max_value: float, step: float, unit: str | None) -> selector.NumberSelector:
-    return selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            min=min_value,
-            max=max_value,
-            step=step,
-            mode=selector.NumberSelectorMode.BOX,
-            unit_of_measurement=unit,
-        )
+def _number(
+    min_value: float,
+    max_value: float,
+    step: float,
+    unit: str | None = None,
+) -> selector.NumberSelector:
+    """Build a box number selector. HA rejects a null unit, so omit the key."""
+    config = selector.NumberSelectorConfig(
+        min=min_value,
+        max=max_value,
+        step=step,
+        mode=selector.NumberSelectorMode.BOX,
     )
+    if unit is not None:
+        config["unit_of_measurement"] = unit
+    return selector.NumberSelector(config)
 
 
 class EvPwrConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -68,7 +74,7 @@ class EvPwrConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_BATTERY_CAPACITY_KWH, default=values[CONF_BATTERY_CAPACITY_KWH]
                 ): _number(1, 300, 0.1, "kWh"),
                 vol.Required(CONF_USABLE_FACTOR, default=values[CONF_USABLE_FACTOR]): _number(
-                    0.1, 1.0, 0.01, None
+                    0.1, 1.0, 0.01
                 ),
                 vol.Required(
                     CONF_MIN_DURATION_MINUTES, default=values[CONF_MIN_DURATION_MINUTES]

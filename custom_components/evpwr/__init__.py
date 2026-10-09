@@ -6,7 +6,12 @@ import logging
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
@@ -27,7 +32,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the backfill service once per HA start."""
     hass.data.setdefault(DATA_KEY, {})
 
-    async def async_backfill(call: ServiceCall) -> None:
+    async def async_backfill(call: ServiceCall) -> ServiceResponse:
         days = call.data["days"]
         entry_id = call.data.get("entry_id")
         if entry_id:
@@ -41,8 +46,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         if not engines:
             _LOGGER.warning("No EV Away Power instance is configured")
-            return
+            return {"entries": []}
 
+        results = []
         for engine in engines:
             trips = await engine.async_backfill(days)
             _LOGGER.info(
@@ -51,10 +57,24 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 engine.entry.title,
                 days,
             )
+            results.append(
+                {
+                    "entry_id": engine.entry.entry_id,
+                    "title": engine.entry.title,
+                    "days": days,
+                    "trips_recorded": trips,
+                    "total_kwh": round(engine.total_kwh, 3),
+                }
+            )
+        return {"entries": results}
 
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL):
         hass.services.async_register(
-            DOMAIN, SERVICE_BACKFILL, async_backfill, schema=BACKFILL_SCHEMA
+            DOMAIN,
+            SERVICE_BACKFILL,
+            async_backfill,
+            schema=BACKFILL_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL,
         )
     return True
 

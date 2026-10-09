@@ -103,12 +103,23 @@ ends mid-hour extends to the edges of its first and last bucket.
 
 Replays the recorded SOC history and re-imports every trip in the window. Use it
 after installing, or after changing the battery capacity — it recomputes the
-cumulative total, so running it twice does not double count.
+cumulative total, so running it twice does not double count. The action reports
+what it did, so Developer tools → Action shows the result:
 
 ```yaml
 service: evpwr.backfill
 data:
   days: 60
+```
+
+```yaml
+# response
+entries:
+  - entry_id: 01M4FHVT6BJPH6V20GBGFEJN67
+    title: EV
+    days: 60
+    trips_recorded: 7
+    total_kwh: 41.2
 ```
 
 ## Rejected trips
