@@ -24,7 +24,9 @@ from .const import (
 )
 
 NAME_SCHEMA = selector.TextSelector()
-SOC_ENTITY_SCHEMA = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+SOC_ENTITY_SCHEMA = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain=["sensor", "input_number", "number"])
+)
 
 
 def _number(min_value: float, max_value: float, step: float, unit: str | None) -> selector.NumberSelector:

@@ -163,3 +163,7 @@ graph.
   pack, so short trips are noise by construction.
 - Parked time at the destination is included in the average — by definition.
 - Imported statistics are hourly; sub-hour trips collapse into one bucket.
+- Pick the SOC source carefully. An entity that reports `0` when the car is
+  unplugged (some charger integrations do this) will be read as a 100 % discharge
+  and produce a huge fake trip. Prefer a source that holds the last real reading,
+  and avoid ones that publish a sub-minute refresh stream while charging.
