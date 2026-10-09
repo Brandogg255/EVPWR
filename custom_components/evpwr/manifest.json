@@ -1,0 +1,12 @@
+{
+  "domain": "evpwr",
+  "name": "EV Away Power",
+  "codeowners": ["@Brandogg255"],
+  "config_flow": true,
+  "documentation": "https://github.com/Brandogg255/EVPWR",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/Brandogg255/EVPWR/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

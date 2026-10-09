@@ -1,0 +1,56 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EV away power",
+        "description": "Derive the EV's average load over each away period from state-of-charge changes.",
+        "data": {
+          "name": "Name",
+          "soc_entity_id": "State of charge sensor",
+          "battery_capacity_kwh": "Battery capacity",
+          "usable_factor": "Usable capacity factor",
+          "min_duration_minutes": "Minimum trip duration",
+          "min_soc_delta": "Minimum SOC change",
+          "max_trip_days": "Maximum trip length",
+          "enable_total_energy": "Add a cumulative away-energy sensor"
+        },
+        "data_description": {
+          "soc_entity_id": "The sensor whose value is the pack state of charge in percent. Trips are defined by consecutive changes of this sensor, so it should be an entity that only reports around departure and arrival.",
+          "battery_capacity_kwh": "Nominal pack capacity used to turn a SOC percentage change into kWh.",
+          "usable_factor": "Multiplier for degradation or unusable headroom. 1.0 assumes the full nominal capacity is usable; 0.9 assumes 90%.",
+          "min_duration_minutes": "SOC changes closer together than this are treated as the car refreshing its SOC while parked, not as a trip.",
+          "min_soc_delta": "Ignore SOC changes smaller than this: at 1% resolution on a 60 kWh pack a single step is only 0.6 kWh, so short trips are noise.",
+          "max_trip_days": "Longer gaps mean the SOC reading went stale rather than the car being away.",
+          "enable_total_energy": "Adds a total_increasing kWh sensor that accumulates away energy. This is the only sensor the Energy dashboard can use."
+        }
+      },
+      "reconfigure": {
+        "title": "EV away power settings"
+      }
+    },
+    "abort": {
+      "already_configured": "This state of charge sensor is already configured.",
+      "reconfigure_successful": "EV away power settings updated."
+    },
+    "error": {
+      "cannot_connect": "Failed to connect.",
+      "unknown": "Unexpected error."
+    }
+  },
+  "services": {
+    "backfill": {
+      "name": "Backfill trips from SOC history",
+      "description": "Replay the recorded state-of-charge history and re-import the resulting away-period statistics. Use this after installing the integration to make past trips visible, or after changing the battery capacity.",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which EV to backfill. Leave empty to run for every configured EV."
+        },
+        "days": {
+          "name": "Days of history",
+          "description": "How many days of state-of-charge history to replay."
+        }
+      }
+    }
+  }
+}

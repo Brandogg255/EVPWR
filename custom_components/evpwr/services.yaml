@@ -1,0 +1,16 @@
+backfill:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: evpwr
+    days:
+      default: 30
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 365
+          step: 1
+          mode: box
