@@ -151,6 +151,7 @@ class EvTripEngine:
 
         self._unsub_state: Callable[[], None] | None = None
         self._listeners: list[Callable[[], None]] = []
+        self._muted = False
         self._store = storage.Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
 
     @property
@@ -215,6 +216,8 @@ class EvTripEngine:
 
     @callback
     def _async_notify(self) -> None:
+        if self._muted:
+            return
         for listener in list(self._listeners):
             listener()
 
@@ -338,23 +341,41 @@ class EvTripEngine:
         states = history.get(self.soc_entity_id, [])
 
         self.tracker.restore(None, None, None, 0.0, 0)
-
-        for state in states:
-            if state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-                continue
-            try:
-                soc = float(state.state)
-            except ValueError:
-                continue
-            self._async_process_sample(SocSample(soc, state.last_changed))
-
+        self._async_replay_states(states)
         await self._async_persist()
+        self._async_notify()
         return self.trips_recorded
+
+    @callback
+    def _async_replay_states(self, states: list[Any]) -> None:
+        """Get recorded SOC states through the tracker without per-sample output.
+
+        A month of SOC history is thousands of samples. Writing a sensor state
+        and a Store save for every one floods each websocket client ("Client
+        unable to keep up with pending messages. Reached 4096 pending
+        messages") and stalls the event loop, so the service response never
+        reaches the UI. The caller persists and notifies once afterwards.
+        """
+        _LOGGER.debug("Replaying %s SOC updates for %s", len(states), self.entry.title)
+        self._muted = True
+        try:
+            for state in states:
+                if state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                    continue
+                try:
+                    soc = float(state.state)
+                except ValueError:
+                    continue
+                self._async_process_sample(SocSample(soc, state.last_changed))
+        finally:
+            self._muted = False
 
     # ------------------------------------------------------------- persistence
 
     @callback
     def _async_schedule_persist(self) -> None:
+        if self._muted:
+            return
         self.hass.async_create_task(self._async_persist(), eager_start=False)
 
     async def _async_persist(self) -> None:
