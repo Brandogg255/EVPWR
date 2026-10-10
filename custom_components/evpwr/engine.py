@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -13,7 +13,10 @@ from homeassistant.core import Event, EventStateChangedData, HomeAssistant, call
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import storage
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_utc_time_change,
+)
 from homeassistant.helpers.recorder import DATA_INSTANCE
 from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
@@ -50,7 +53,14 @@ from .const import (
     DEFAULT_USABLE_FACTOR,
     DOMAIN,
 )
-from .trip import SocSample, TripResult, TripStatus, TripTracker, hourly_bucket_starts
+from .trip import (
+    SocSample,
+    TripResult,
+    TripStatus,
+    TripTracker,
+    hourly_bucket_starts,
+    zero_fill_bucket_starts,
+)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -152,6 +162,9 @@ class EvTripEngine:
         self._unsub_state: Callable[[], None] | None = None
         self._listeners: list[Callable[[], None]] = []
         self._muted = False
+        self._unsub_tick: Callable[[], None] | None = None
+        self._zero_until: datetime | None = None
+        self._trip_windows: list[tuple[datetime, datetime]] = []
         self._store = storage.Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
 
     @property
@@ -193,15 +206,28 @@ class EvTripEngine:
                 float(payload.get("total_kwh") or 0.0),
                 int(payload.get("trips_recorded") or 0),
             )
+            if payload.get("zero_until"):
+                self._zero_until = _parse(payload["zero_until"])
+            last_valid = self.last_valid_trip
+            if last_valid is not None and last_valid.start and last_valid.end:
+                self._trip_windows.append((last_valid.start, last_valid.end))
 
         self._unsub_state = async_track_state_change_event(
             self.hass, [self.soc_entity_id], self._async_soc_changed
+        )
+        # Catch up over any downtime, then keep the parked line alive each hour.
+        self._async_fill_zero(dt_util.utcnow())
+        self._unsub_tick = async_track_utc_time_change(
+            self.hass, self._async_hourly_tick, minute=0, second=0
         )
 
     async def async_shutdown(self) -> None:
         if self._unsub_state is not None:
             self._unsub_state()
             self._unsub_state = None
+        if self._unsub_tick is not None:
+            self._unsub_tick()
+            self._unsub_tick = None
         self._listeners.clear()
 
     def async_subscribe(self, listener: Callable[[], None]) -> Callable[[], None]:
@@ -246,12 +272,15 @@ class EvTripEngine:
             self._async_schedule_persist()
             return
 
-        if result.is_valid:
+        if result.is_valid and result.start and result.end:
             self._async_import_statistics(result)
+            self._trip_windows.append((result.start, result.end))
 
         self._async_schedule_persist()
         if result.status is not TripStatus.TOO_SHORT:
             self._async_notify()
+        if not self._muted:
+            self._async_fill_zero(dt_util.utcnow())
 
     # ------------------------------------------------------------- statistics
 
@@ -264,9 +293,48 @@ class EvTripEngine:
         import the recorder would only know the sensor's single state change at
         arrival, and every graph would show a step instead of the away period.
         """
+        self._async_import_buckets(
+            round(result.avg_power_w or 0.0, 1),
+            hourly_bucket_starts(result.start, result.end),
+        )
+
+    @callback
+    def _async_fill_zero(self, now: datetime) -> None:
+        """Extend the 0 W line from the last written bucket up to this hour.
+
+        The away average only exists inside a trip window. Every parked hour
+        outside one has to be written as 0 W, otherwise the graph keeps drawing
+        the last trip's value while the car sits at home. Re-importing a bucket
+        the recorder already holds replaces it (``_import_statistics_with_session``
+        updates the existing row), so this is idempotent, and a trip that later
+        covers the same hour overwrites the zero again.
+        """
+        horizon = now - timedelta(days=self.max_trip_days)
+        self._trip_windows = [(s, e) for s, e in self._trip_windows if e >= horizon]
+
+        floor = self._zero_until or (self.last_valid_trip.end if self.last_valid_trip else now)
+        if floor < horizon:
+            floor = horizon
+        buckets = zero_fill_bucket_starts(floor, now, self._trip_windows)
+        if not buckets:
+            return
+        self._async_import_buckets(0.0, buckets)
+        self._zero_until = buckets[-1] + timedelta(hours=1)
+        _LOGGER.debug("Imported %s zero-power buckets for %s", len(buckets), self.statistic_id)
+
+    @callback
+    def _async_hourly_tick(self, now: datetime) -> None:
+        self._async_fill_zero(now)
+        self._async_schedule_persist()
+
+    @callback
+    def _async_import_buckets(self, power: float, buckets: list[datetime]) -> None:
+        """Send hourly mean/min/max rows for this statistic to the recorder."""
+        if not buckets:
+            return
         if DATA_INSTANCE not in self.hass.data:
             _LOGGER.warning(
-                "Recorder is unavailable; skipped statistics backfill for %s", self.statistic_id
+                "Recorder is unavailable; skipped statistics import for %s", self.statistic_id
             )
             return
 
@@ -279,8 +347,6 @@ class EvTripEngine:
             async_add_external_statistics,
         )
 
-        power = round(result.avg_power_w or 0.0, 1)
-        buckets = hourly_bucket_starts(result.start, result.end)
         metadata: StatisticMetaData = {
             "mean_type": StatisticMeanType.ARITHMETIC,
             "has_sum": False,
@@ -341,7 +407,10 @@ class EvTripEngine:
         states = history.get(self.soc_entity_id, [])
 
         self.tracker.restore(None, None, None, 0.0, 0)
+        self._trip_windows = []
+        self._zero_until = start
         self._async_replay_states(states)
+        self._async_fill_zero(dt_util.utcnow())
         await self._async_persist()
         self._async_notify()
         return self.trips_recorded
@@ -387,6 +456,7 @@ class EvTripEngine:
             "last_valid_trip": trip_to_dict(self.last_valid_trip),
             "total_kwh": self.total_kwh,
             "trips_recorded": self.trips_recorded,
+            "zero_until": _iso(self._zero_until),
         }
         try:
             await self._store.async_save(payload)

@@ -20,6 +20,7 @@ time), not driving power.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
@@ -207,6 +208,34 @@ def hourly_bucket_starts(start: datetime, end: datetime) -> list[datetime]:
         cursor += HOUR
     if not buckets:
         buckets.append(first)
+    return buckets
+
+
+def zero_fill_bucket_starts(
+    window_start: datetime,
+    window_end: datetime,
+    busy: Iterable[tuple[datetime, datetime]] = (),
+) -> list[datetime]:
+    """Hour buckets in ``[window_start, window_end]`` that no trip window covers.
+
+    Parked stretches need their own 0 W rows: without them the last trip's value
+    appears to run on forever after the car is home. Buckets that overlap a trip
+    window are left to that trip's value, so the two never write the same row.
+    """
+    start_utc = window_start.astimezone(timezone.utc)
+    end_utc = window_end.astimezone(timezone.utc)
+    last = end_utc.replace(minute=0, second=0, microsecond=0)
+    busy_utc = [(s.astimezone(timezone.utc), e.astimezone(timezone.utc)) for s, e in busy]
+
+    buckets: list[datetime] = []
+    cursor = start_utc.replace(minute=0, second=0, microsecond=0)
+    while cursor <= last:
+        if not any(
+            cursor < trip_end and trip_start < cursor + HOUR
+            for trip_start, trip_end in busy_utc
+        ):
+            buckets.append(cursor)
+        cursor += HOUR
     return buckets
 
 

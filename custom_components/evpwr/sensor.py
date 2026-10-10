@@ -74,7 +74,7 @@ class EvTripSensor(SensorEntity):
 
 
 class AwayAveragePowerSensor(EvTripSensor):
-    """Average load across the whole away window, parked time included."""
+    """The 0 W baseline the away-average statistics are attached to."""
 
     _attr_name = "Away average power"
     _key = "away_average_power"
@@ -84,11 +84,15 @@ class AwayAveragePowerSensor(EvTripSensor):
     _attr_suggested_display_precision = 0
 
     @property
-    def native_value(self) -> float | None:
-        trip = self._trip()
-        if trip is None or trip.avg_power_w is None:
-            return None
-        return round(trip.avg_power_w, 1)
+    def native_value(self) -> float:
+        """Always 0 W: the car draws nothing once it is home.
+
+        The away average is a property of a past trip, not of the present
+        moment, so it lives in the imported hourly statistics rows and in the
+        ``avg_power_w`` attribute. Rendering it here is what left the entity
+        showing the previous night's 1120 W hours after the car was parked.
+        """
+        return 0.0
 
 
 class TripEnergySensor(EvTripSensor):
