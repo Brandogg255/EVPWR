@@ -60,7 +60,7 @@ For an entry named *EV*:
 
 | Entity | Class | Meaning |
 | --- | --- | --- |
-| `sensor.ev_away_average_power` | power, W, measurement | Average load of the most recent completed away period |
+| `sensor.ev_away_average_power` | power, W, measurement | Always `0 W`; it carries the statistics id, the away average lives in the rows and in `avg_power_w` |
 | `sensor.ev_trip_energy` | energy, kWh, measurement | Energy lost during that period |
 | `sensor.ev_away_energy_total` | energy, kWh, total_increasing | Optional running total of away energy |
 
@@ -90,14 +90,18 @@ What each surface shows:
 
 | Surface | Result |
 | --- | --- |
-| **Statistics graph card** with the `statistic_id` above | Flat line across the away window — this is the intended view |
-| History / logbook (raw states) | Step change at arrival, because the sensor only changes state when the trip closes |
-| `sensor.ev_away_average_power` in a statistics graph card | Step at arrival (recorder computes its own stats from the state change) |
+| **Statistics graph card** with the `statistic_id` above | Trip average across the away window, then `0 W` for every parked hour up to now — this is the intended view |
+| History / logbook (raw states) | Always `0 W`. The state never carries the average, so the history graph cannot show a stale figure |
+| `avg_power_w` on `sensor.ev_trip_energy` | The average of the most recent completed trip, as a number |
 | Energy dashboard | Only the optional cumulative `total_increasing` sensor; per-trip values are not accepted |
 
 Home Assistant only accepts imported long-term statistics on **whole hour**
-boundaries, so the flat line is one bucket per hour and a trip that starts or
-ends mid-hour extends to the edges of its first and last bucket.
+boundaries, so the line is one bucket per hour and a trip that starts or ends
+mid-hour extends to the edges of its first and last bucket. Hours after the
+trip closes are imported as `0 W` — from the next top-of-hour after arrival,
+re-extended every hour while the car stays home — so the graph does not hold
+the trip average over parked time. Re-importing a bucket replaces it, which is
+what lets a late-closing trip overwrite zeros that were written for its hours.
 
 ## Service: `evpwr.backfill`
 
